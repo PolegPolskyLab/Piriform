@@ -1,0 +1,175 @@
+
+	load_file("nrngui.hoc")	
+	load_file("piri30_09_17.hoc")				//---pyramidal cell morphology to use					
+	
+	
+//	----parameters---
+	FileName=1
+	randomseed=5
+	insertHH=0									//---have somatic spikes
+	insertHHdend=0								//---have dendritic voltage gated channels 
+	useVesicularrelease=01						//---presynaptic release is mediated by vesicles
+	numrepeats=1								//---repeats of the simulation
+	NumInputsUseInExampleFunctions=6
+//	---template for input structure
+	begintemplate Input
+		public NumInputs,MinDist,MaxDist,Location,LocationSD,SecRef,IsInhibition,gGABAmax
+		public baseline,Nspike,NspikeSD,TspikeMean,TspikeSD,StartMean,StartSD,SynNumSD,Stimdends
+		public gNMDAmax,gAMPAmax,SynNum,maxVes,newVes,p,fascAmp,fascTau,doStim,synapses
+		objref SecRef,Stimdends
+		objref synapses[2]
+		proc init(){
+			NumInputs=0								//---number of synaptic sites
+			Location=0
+			LocationSD=0
+
+			MinDist=0								//---closest allowed distance from soma
+			MaxDist=2000							//---furtherst distance from soma
+			baseline=0								//---baseline firing rate
+			Nspike=5								//---number of spikes in presynaptic input (for mitral cells- Davison Ehlers 2011)
+			NspikeSD=3								//---S.D. of Nspike (Davison Ehlers 2011)
+			TspikeMean=8							//---inter spike interval (ISI, Davison Ehlers 2011)
+			TspikeSD=05								//---S.D. of the ISI Davison Ehlers 2011
+			StartMean=150							//---time of input arrival
+			StartSD=6								//---S.D. of startmean		
+			gNMDAmax=2								//---NMDA Receptor unitary conductance
+			gAMPAmax=1								//---AMPA Receptor unitary conductance
+			gGABAmax=2								//---1:1 inhibition excitation ; Balanced feedforward inhibition and dominant recurrent inhibition in olfactory cortex
+			IsInhibition=0							//---1: inhibitory drive
+			SynNum=1								//---number of release sites
+			SynNumSD=0								//---S.D. of synnum
+			
+			maxVes=3								//---max. number of vesicles
+			newVes=0.01								//---vesicle replenishment rate (/s)
+			p=0.1									//---probability of release
+			fascTau=100
+			fascAmp=0
+			doStim=1
+			objref synapses[1000]
+		}
+	endtemplate Input
+	
+	//---2 inputs to different terminal branches to test receptive field properties
+	objref Atype,Btype
+	Atype=new Input()
+	Btype=new Input()
+	Atype.NumInputs=6
+	
+	//---inhibitory drives+background bias
+	objref Basetype,InhCCtype,InhLOTtype,InhBasetype
+	InhCCtype=new Input()							//---proximal inhibition 
+	InhLOTtype=new Input()							//---distal inhibition (in the LOT)
+
+	InhLOTtype.MinDist=300
+	InhLOTtype.MaxDist=1400
+	InhLOTtype.NumInputs=0
+	InhLOTtype.StartMean=120
+	InhLOTtype.IsInhibition=01
+	
+	InhCCtype.StartMean=160
+	InhCCtype.MinDist=300
+	InhCCtype.MaxDist=100
+	InhCCtype.IsInhibition=01	
+	InhCCtype.Nspike=10
+	InhCCtype.NumInputs=0
+	
+	Basetype=new Input()
+	InhBasetype=new Input()
+	Basetype.baseline=10
+	Basetype.TspikeMean=20
+	Basetype.gNMDAmax=0
+	Basetype.NumInputs=0100
+	Basetype.StartMean=1000
+	
+	InhBasetype.baseline=10
+	InhBasetype.TspikeMean=20
+	InhBasetype.IsInhibition=1
+	InhBasetype.NumInputs=020
+	InhBasetype.StartMean=1000
+	
+
+	
+	NAR=2
+//	---active parameters	
+	na_s=2
+	k_s=1
+	km_s=.002
+	na_d=0.003
+	k_d=0.001
+	km_d=0.00
+	rpas=20000
+	NF_HH=0
+	
+//	---other variables
+	tau_ampa_glutamate=1.5
+	tau1_glutamate=100
+	n_glutamate=0.33
+	gama_glutamate=0.06
+	dt = 0.1	
+	tstop = 300
+	v_init = -70
+	steps_per_ms = 10				
+	objref cell
+	cell=new celltemplate(1,1)
+	forall {	
+		insert pas
+	}
+	if (insertHH==1){
+		if(insertHHdend){
+			forall{
+				insert HH
+				gnabar_HH=0
+				gkbar_HH=0
+				gkmbar_HH=0	
+				vshift_HH=5
+			}
+		}
+		access cell.soma
+		insert HH
+		gnabar_HH=0
+		gkbar_HH=0
+		gkmbar_HH=0	
+		vshift_HH=-5		
+	}
+	
+//	---plots	
+	objref gVmain,gdiff		
+	gVmain=new Graph(0)
+	gVmain.view(0,-80,tstop,100,1000,250,400,250) 
+	gVmain.addexpr("cell.soma.v(0.5)",2,1)
+	objref base_Vec,onlyA_Vec,onlyB_Vec,Paired_Vec,Expected_Vec
+	base_Vec=new Vector()
+	onlyA_Vec=new Vector()
+	onlyB_Vec=new Vector()
+	Paired_Vec=new Vector()
+	Expected_Vec=new Vector()
+	gVmain.label(0.5, 0, "baseline",1,1,0,0,1)
+	gVmain.label(0.5, 5, "single input",1,1,0,0.1,2)
+	gVmain.label(0.5, 10, "pair",1,1,0,0.2,3)
+	gVmain.label(0.5, 15, "expected",1,1,0,0.2,4)
+	graphList[0].append(gVmain)
+	
+	objref diffA_Vec,diffB_Vec,diffPaired_Vec,diffExpected_Vec
+	diffA_Vec=new Vector()
+	diffB_Vec=new Vector()
+	diffPaired_Vec=new Vector()	
+	diffExpected_Vec=new Vector()	
+	gdiff=new Graph(0)
+	gdiff.view(0,-2,tstop,32,1500,250,400,250) 
+	gdiff.label(0.5, 0, "baseline",1,1,0,0,1)
+	gdiff.label(0.5, 5, "single input",1,1,0,0.1,2)
+	gdiff.label(0.5, 10, "pair",1,1,0,0.2,3)	
+	gdiff.label(0.5, 15, "expected",1,1,0,0.3,4)	
+	graphList[0].append(gdiff)	
+	
+	objref somaAP,netcon,nil						
+	somaAP=new Vector()						
+	netcon=new NetCon(&cell.soma.v(0.5),nil)			//---AP count	
+	netcon.record(somaAP)						
+	netcon.threshold=-10
+
+	load_file("functions.hoc")	
+	AllSynPlacement()	
+	Update()
+	load_file("net.ses")	
+	init_plots_panels()

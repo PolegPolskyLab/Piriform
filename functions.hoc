@@ -1,0 +1,419 @@
+	objref RandObj
+	RandObj=new Random()	
+	access cell.soma
+	distance()
+	objref temp
+	single0sister1diff2=0
+	
+	func checkdistance(){					//---checks that the selected site is in the correct distance from some
+		testdist=$1
+		MinDist=$2
+		MaxDist=$3
+		if(MinDist<MaxDist){
+			if ((testdist>=MinDist)&&(testdist<=MaxDist)){//---distance from soma ok
+				return 1
+			}
+		}else{
+			if ((testdist>=MinDist)||(testdist<=MaxDist)){//---distance from soma ok
+				return 1
+			}
+		}
+		return 0
+	}
+	
+	proc SynPlacement(){					//---places the inputs randomly on the selected area
+											//--- $o1 :params,$2: preselected location (-1 if none),	
+		$o1.Stimdends=new SectionList()
+		if($2==-1){							//---over all dendrites
+			$o1.Stimdends=cell.dends
+		}else{
+			if($2==0){
+				countdend=0
+				forsec cell.primedends{		//---selected branch given by $2		
+					if(countdend==$2){$o1.Stimdends.subtree()}// print countdend}
+					countdend+=1
+				}
+			}else{							//---4 predetermined positions (A, B C D)
+				if ($2==1){
+					access cell.dend[18]
+					$o1.Stimdends.append()
+				}
+				if ($2==2){
+					access cell.dend[34]
+					$o1.Stimdends.append()
+				}				
+				if ($2==3){
+					access cell.dend[22]
+					$o1.Stimdends.append()
+				}				
+				if ($2==4){
+					access cell.dend[8]
+					$o1.Stimdends.append()
+				}
+			}
+		}
+		length=0							//---the total length of all the stimulated dendrites on the cell
+		forsec $o1.Stimdends{length=length+L }
+		RandObj.ACG(randomseed)
+		access cell.soma
+		distance()			
+		for i=0,999{
+			$o1.synapses[i]=new List()
+		}		
+		for i=0,$o1.NumInputs-1{			//---over all synapses from type
+			synNum=int(RandObj.normal($o1.SynNum,$o1.SynNumSD^2)+0.5)
+			for countsyn=0,synNum-1{
+				ok=0
+				while(ok==0){				//---location not found
+					newloc=RandObj.uniform(0,length)					//---pick global location at random		
+					length=0	
+					dendcount=0		
+					forsec $o1.Stimdends{					
+						dendcount=dendcount+1
+						if( (length<=newloc)&&(length+L>=newloc)){		//---put synapse
+							if(checkdistance(distance((newloc-length)/L),$o1.MinDist,$o1.MaxDist)){
+								objref temp
+								if($o1.IsInhibition==1){
+									temp=new gaba((newloc-length)/L)	
+								}else{
+									if(useVesicularrelease){
+										temp=new glutamate_ves((newloc-length)/L)	
+									}else{
+										temp=new glutamate((newloc-length)/L)	
+									}
+								}
+								temp.dend=dendcount	
+								temp.pos=(newloc-length)/L		
+								temp.locx=x3d(int(n3d()*temp.pos))
+								temp.locy=y3d(int(n3d()*temp.pos))
+								$o1.synapses[i].append(temp)
+								ok=1
+							}
+						}
+						length=length+L	
+					}	
+				}
+			}				
+		}		
+	}
+
+	proc UpdateSynapses(){					//---updates all the synapses in the simulation based on params
+											//---input-$o1 :list of synapses; 
+		RandObj.ACG(randomseed)				//---randomizer
+		for incount=0,$o1.NumInputs-1{
+			synNspike=int(RandObj.normal($o1.Nspike,$o1.NspikeSD^2)+0.5)
+			synTspike=RandObj.normal($o1.TspikeMean,$o1.TspikeSD^2)
+			syndel=RandObj.normal($o1.StartMean,$o1.StartSD^2)
+			if(synNspike<0){synNspike=0}
+			if(synTspike<1){synTspike=1}
+			if(syndel<1){syndel=1}
+			for i=0,$o1.synapses[incount].count()-1{//over all synapses from type
+				$o1.synapses[incount].o(i).Nspike= synNspike
+				$o1.synapses[incount].o(i).Tspike= synTspike
+				$o1.synapses[incount].o(i).del= syndel
+				if(useVesicularrelease){
+					$o1.synapses[incount].o(i).baseline= $o1.baseline
+					$o1.synapses[incount].o(i).SynNum=1
+					$o1.synapses[incount].o(i).maxVes= $o1.maxVes
+					$o1.synapses[incount].o(i).newVes= $o1.newVes
+					$o1.synapses[incount].o(i).p= $o1.p			
+					$o1.synapses[incount].o(i).fascTau= $o1.fascTau			
+					$o1.synapses[incount].o(i).fascAmp= $o1.fascAmp			
+					$o1.synapses[incount].o(i).doStim=1
+				}
+				if($o1.IsInhibition==1){
+					$o1.synapses[incount].o(i).gmax= $o1.gGABAmax
+					$o1.synapses[incount].o(i).e=-70				
+				}else{
+					$o1.synapses[incount].o(i).gNMDAmax= $o1.gNMDAmax
+					$o1.synapses[incount].o(i).gAMPAmax= $o1.gAMPAmax				
+				}
+			}
+		}
+	}
+	
+	proc Update(){							//---update passive / active parameters
+		forall {
+			g_pas=1/rpas
+			e_pas=v_init
+		}		
+		if(insertHH==1){
+			if(insertHHdend){
+				forall{
+					gnabar_HH=na_d
+					gkbar_HH=k_d
+					gkmbar_HH=km_d	
+				}
+			}
+			access cell.soma
+			gnabar_HH=na_s
+			gkbar_HH=k_s
+			gkmbar_HH=km_s		
+		}
+		UpdateAllSynapses()
+	}	
+	
+	proc UpdateAllSynapses(){				//---helper function
+		UpdateSynapses(InhCCtype)
+		UpdateSynapses(InhLOTtype)
+		UpdateSynapses(Basetype)
+		UpdateSynapses(InhBasetype)
+		UpdateSynapses(Atype)
+		UpdateSynapses(Btype)
+	
+	}
+
+	proc AllSynPlacement(){					//---helper function
+		SynPlacement(InhCCtype,-1)		
+		SynPlacement(InhLOTtype,-1)
+		SynPlacement(Basetype,-1)
+		SynPlacement(InhBasetype,-1)
+		SynPlacement(Atype,1)				
+		SynPlacement(Btype,2)				
+				
+		UpdateAllSynapses()
+	}
+	
+	proc InputPanel(){						//---display of input parameters
+		//o1-type;s2-name;$3 $4 xy of panel
+		xpanel($s2)
+		xpvalue("# Inputs",&$o1.NumInputs, 1,"AllSynPlacement()")
+		xpvalue("MinDist",&$o1.MinDist, 1,"AllSynPlacement()")
+		xpvalue("MaxDist",&$o1.MaxDist, 1,"AllSynPlacement()")
+		xpvalue("baseline",&$o1.baseline, 1,"UpdateAllSynapses()")
+		xpvalue("Nspike",&$o1.Nspike, 1,"UpdateAllSynapses()")
+		xpvalue("NspikeSD",&$o1.NspikeSD, 1,"UpdateAllSynapses()")
+		xpvalue("TspikeMean",&$o1.TspikeMean, 1,"UpdateAllSynapses()")
+		xpvalue("TspikeSD",&$o1.TspikeSD, 1,"UpdateAllSynapses()")
+		xpvalue("StartMean",&$o1.StartMean, 1,"UpdateAllSynapses()")
+		xpvalue("StartSD",&$o1.StartSD, 1,"UpdateAllSynapses()")
+		xpvalue("gNMDAmax",&$o1.gNMDAmax, 1,"UpdateAllSynapses()")
+		xpvalue("gAMPAmax",&$o1.gAMPAmax, 1,"UpdateAllSynapses()")
+		xpvalue("gGABAmax",&$o1.gGABAmax, 1,"UpdateAllSynapses()")
+		xpvalue("SynNum",&$o1.SynNum, 1,"UpdateAllSynapses()")
+		xpvalue("SynNumSD",&$o1.SynNumSD, 1,"UpdateAllSynapses()")	
+		xpvalue("maxVes",&$o1.maxVes, 1,"UpdateAllSynapses()")
+		xpvalue("p",&$o1.p, 1,"UpdateAllSynapses()")
+		xpvalue("newVes",&$o1.newVes, 1,"UpdateAllSynapses()")
+		xpvalue("fascTau",&$o1.fascTau, 1,"UpdateAllSynapses()")
+		xpvalue("fascAmp",&$o1.fascAmp, 1,"UpdateAllSynapses()")
+		xpvalue("maxVes",&$o1.maxVes, 1,"UpdateAllSynapses()")		
+		xpanel($3,$4)
+	}
+	
+	proc init_plots_panels(){				//---PLOTS
+		objref ginputs,shape,INreptimes,gSPIKE
+		xpanel("RUN")
+			xvalue("Init","v_init", 1,"stdinit()", 1, 1 )
+			xbutton("Init & Run","run()")
+			xbutton("Stop","stoprun=1")
+			xvalue("Tstop","tstop", 1,"tstop_changed()", 0, 1 )		
+			xvalue("t")
+			xvalue("Random Seed","randomseed", 1,"", 1, 1 )
+			xvalue("Number of Inputs","NumInputsUseInExampleFunctions", 1,"", 1, 1 )
+			xvalue("Number of Repeats","numrepeats",1,"",1,1)
+			xbutton("Example Same Branch","SaveCurrent(1,1)")	
+			xbutton("Example Nearby Branches","SaveCurrent(1,2)")	
+			xbutton("Example Far Branches","SaveCurrent(1,3)")	
+			xbutton("Example Dispersed Branches","SaveCurrent(-1,-1)")	
+			//xbutton("Cluster-Dispersed","SaveCluster(1,0)")	
+		xpanel(540,400)
+		
+		InputPanel(InhCCtype,"Inh CC",1200,750)					//---inhibition
+		InputPanel(InhLOTtype,"Inh LOT",1500,750)
+		
+		InputPanel(Basetype,"Exc Back",1800,750)				//---background
+		InputPanel(InhBasetype,"Inh Back",2100,750)
+		
+		InputPanel(Atype,"A",0,750)								//---excitation
+		InputPanel(Btype,"B",300,750)
+
+		xpanel("PARAMETERS")
+			xlabel("Active Params")
+			xvalue("Na Soma","na_s", 1,"Update()")
+			xvalue("K Soma","k_s", 1,"Update()")
+			xvalue("Km Soma","km_s", 1,"Update()")
+			xvalue("Na Dend","na_d", 1,"Update()")
+			xvalue("K Dend","k_d", 1,"Update()")
+			xvalue("Km Dend","km_d", 1,"Update()")
+			xvalue("V Shift","vshift_HH", 1,"Update()")
+			xvalue("R Passive","rpas", 1,"Update()")						
+		xpanel(360,10)
+	}
+
+	objref expectedvec,basevec,diffvec,mat,inputvec
+
+	objref f1,somav,dendv
+	somav=new Vector()
+	somav.record(&cell.soma.v(0.5))
+	dendv=new Vector()
+	dendv.record(&cell.dend[18].v(0.5))
+
+		
+	proc saveV(){										//---saves the current run
+		objref f1
+		f1=new File()
+		f1.wopen("ampV.dat")	
+		run()	
+		for i=0,somav.size()-1{
+			f1.printf("%g\n",somav.x[i])	
+		}			
+		f1.close()
+	}
+	
+	objref vec,inhibvec,runvec,diffvec,matrun,matSD,matDrun,matD
+	
+	objref base_Vec,onlyA_Vec,onlyB_Vec,Paired_Vec
+	objref matrixExpectedActual
+	proc SaveCurrent(){						//---generates run parametrs and executes the simulation
+											//---$1:location of A inputs ,$2: location of B inputs
+											//---numrepeats>0:generate expected vs actual file
+		Atype.NumInputs=NumInputsUseInExampleFunctions	//---number of inputs-> for example: A:15
+		Basetype.NumInputs=100							//---background excitation:100
+		InhBasetype.NumInputs=Basetype.NumInputs/5		//---background inhibition:20
+		InhCCtype.NumInputs=Atype.NumInputs*1			//---cortical (feedback) inhibition:30
+		InhLOTtype.NumInputs=Atype.NumInputs*1			//---feedforward inhibition:30
+		Btype.NumInputs=Atype.NumInputs					//---B:15
+
+		f1=new File()
+		f1.wopen("ExpectedActual.dat")	
+
+		if(numrepeats>1){					//---save matrix of expected and actual values
+			matrixExpectedActual=new Matrix(numrepeats,4)//---rows-0:expected peakVm,1:expected integral ,2:actual peakVm,1:actual integral 
+		}else{								//---save individual traces
+			matrixExpectedActual=new Matrix(tstop/dt+1,9)
+		}
+		for rep=0,numrepeats-1{
+			Atype.StartMean=150
+			Btype.StartMean=Atype.StartMean
+			InhCCtype.StartMean=Atype.StartMean+15
+			InhLOTtype.StartMean=Atype.StartMean+5
+			SynPlacement(Atype,$1)
+			SynPlacement(Btype,$2)
+			SynPlacement(InhCCtype,-1)		
+			SynPlacement(InhLOTtype,-1)
+			SynPlacement(Basetype,-1)
+			SynPlacement(InhBasetype,-1)
+			//---first run the background
+			Atype.StartMean=15000
+			Btype.StartMean=15000
+			UpdateAllSynapses()	
+			run()
+			base_Vec=somav.c
+			base_Vec.plot(gVmain,dt,1,1)
+			//---run input A
+			Atype.StartMean=150
+			UpdateAllSynapses()	
+			run()
+			onlyA_Vec=somav.c
+			onlyA_Vec.plot(gVmain,dt,2,1)
+			diffA_Vec=somav.c.sub(base_Vec)	
+			diffA_Vec.plot(gdiff,dt,2,1)
+			//---run input B
+			Atype.StartMean=15000
+			Btype.StartMean=150
+			UpdateAllSynapses()	
+			run()
+			onlyB_Vec=somav.c	
+			onlyB_Vec.plot(gVmain,dt,2,1)
+			diffB_Vec=somav.c.sub(base_Vec)	
+			diffB_Vec.plot(gdiff,dt,2,1)
+			//---run inputs A and B
+			Atype.StartMean=150
+			Btype.StartMean=150
+			UpdateAllSynapses()	
+			run()
+			Paired_Vec=somav.c	
+			Paired_Vec.plot(gVmain,dt,3,1)
+			diffPaired_Vec=somav.c.sub(base_Vec)	
+			diffPaired_Vec.plot(gdiff,dt,3,1)		
+			//---calc expected
+			diffExpected_Vec=diffB_Vec.c.add(diffA_Vec)
+			diffExpected_Vec.plot(gdiff,dt,4,1)
+			Expected_Vec=diffExpected_Vec.c.add(base_Vec)
+			Expected_Vec.plot(gVmain,dt,4,1)
+			if(numrepeats>1){			
+				matrixExpectedActual.x[rep][0]=diffExpected_Vec.max()
+				matrixExpectedActual.x[rep][1]=diffExpected_Vec.sum()/tstop*dt
+				matrixExpectedActual.x[rep][2]=diffPaired_Vec.max()
+				matrixExpectedActual.x[rep][3]=diffPaired_Vec.sum()/tstop*dt
+				randomseed+=1
+			}else{
+				for i=0,somav.size()-1{
+					matrixExpectedActual.x[i][0]=base_Vec.x[i]
+					matrixExpectedActual.x[i][1]=onlyA_Vec.x[i]
+					matrixExpectedActual.x[i][2]=onlyB_Vec.x[i]
+					matrixExpectedActual.x[i][3]=Paired_Vec.x[i]
+					matrixExpectedActual.x[i][4]=Expected_Vec.x[i]
+					matrixExpectedActual.x[i][5]=diffA_Vec.x[i]
+					matrixExpectedActual.x[i][6]=diffB_Vec.x[i]
+					matrixExpectedActual.x[i][7]=diffPaired_Vec.x[i]
+					matrixExpectedActual.x[i][8]=diffExpected_Vec.x[i]					
+				}
+			}
+		}
+
+		matrixExpectedActual.fprint(0,f1,"%g\t")		
+		
+		f1.close()
+		
+	}
+	
+	
+	proc SaveCluster(){						//---changes cluster/dispersed 
+											//---runs based on the number of synapses in A type
+											//---Atype will be the clustered type
+											//---Btype will be the dispersed type
+		task=$1								//---1: cluster/dispersed percent
+											//---2: diff between cluster/dispersed vs temporal delay
+		objref f1,mat,vec
+		f1=new File()
+		f1.wopen("amp.dat")	
+		run()
+		NumberOfRuns=20
+		numrepeates=100		
+		mat=new Matrix(tstop,(NumberOfRuns+1)*2)	//---saved matrix
+		matrun=new Matrix(tstop/dt+1,numrepeates)	//---repeats
+		inhibvec=new Vector()
+		runvec=new Vector()
+		diffvec=new Vector()		
+		numsyn=Atype.NumInputs		
+		for RunCounter=0,NumberOfRuns{			
+			vec=new Vector(numrepeates)
+			for randomseed=0,numrepeates-1{
+				if(task==1){
+					Atype.NumInputs=RunCounter
+					Btype.NumInputs=NumberOfRuns-RunCounter
+				}
+				InhCCtype.NumInputs=numsyn//Atype.NumInputs
+				InhLOTtype.NumInputs=numsyn//Atype.NumInputs				
+				Btype.StartMean=100//+1000*(task-1)
+				Atype.StartMean=100
+				SynPlacement(Atype,1)//-1
+				SynPlacement(Btype,-1)
+				SynPlacement(InhCCtype,-1)
+				SynPlacement(InhLOTtype,-1)
+				UpdateAllSynapses()		
+				run()
+				diffvec==somav.c		
+				if(Basetype.NumInputs>0){				//---there is a background - subtract
+					Btype.StartMean=1000
+					Atype.StartMean=1000
+					UpdateAllSynapses()		
+					runvec=somav.c		
+					run()		
+					inhibvec=somav.c
+					diffvec=runvec.sub(inhibvec)				
+				}
+				diffvec.plot(gdiff,dt)
+				matrun.setcol(randomseed,diffvec)
+			}
+			for i=0,tstop-1{
+				vec=matrun.getrow(i*10)
+				mat.x[i][RunCounter]=vec.mean()
+				mat.x[i][RunCounter+(NumberOfRuns+1)]=sqrt(vec.var())
+			}
+		}
+		mat.fprint(0,f1,"%g\t")		
+		f1.close()
+	}
